@@ -1,4 +1,4 @@
-# spriteloop
+# Spriteloop for Solar2d
 *spriteloop* is a pure Lua SpriteLoop (`.spla`) Importer and Animation Player for Solar2D (formerly Corona SDK).
 
 ![Screenshot of spriteloop in action](robot-screenshot.png)
