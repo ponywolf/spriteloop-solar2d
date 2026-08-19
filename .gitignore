@@ -1,0 +1,66 @@
+# AI Agents & Assistants
+.gemini/
+.antigravity/
+.agent/
+.agents/
+.cursor/
+.cursorrules
+.claude/
+.windsurf/
+.aider*
+.copilot/
+AGENTS.md
+CLAUDE.md
+*.agent
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Solar2D / Corona Simulator & Logs
+*.log
+CoronaSimulator.log
+Solar2DSimulator.log
+.corona/
+.solar2d/
+
+# Mobile Builds & Packages
+*.apk
+*.aab
+*.ipa
+*.app
+*.dSYM/
+*.dSYM.zip
+
+# Secrets, Certificates & Keys
+*.keystore
+*.jks
+*.p12
+*.cer
+*.key
+*.pem
+*.mobileprovision
+*.provisionprofile
+.env
+.env.*
+*.env
+
+# Temporary Files
+*.tmp
+*~
+*.swp
+*.swo
