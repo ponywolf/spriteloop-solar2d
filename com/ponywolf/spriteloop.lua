@@ -60,6 +60,91 @@ local function sanitizePath(p)
 	return s
 end
 
+local function readU16(str, offset)
+	local b1, b2 = string.byte(str, offset, offset + 1)
+	return (b1 or 0) + (b2 or 0) * 256
+end
+
+local function readU32(str, offset)
+	local b1, b2, b3, b4 = string.byte(str, offset, offset + 3)
+	return (b1 or 0) + (b2 or 0) * 256 + (b3 or 0) * 65536 + (b4 or 0) * 16777216
+end
+
+local function ensureDirectoryTree(destSubdir, baseDir)
+	local hasLfs, lfs = pcall(require, "lfs")
+	if not hasLfs or not lfs then return end
+	local fullBase = system.pathForFile("", baseDir) or ""
+	local current = fullBase
+	for part in string.gmatch(destSubdir, "[^/\\]+") do
+		if part ~= "" and part ~= "." then
+			current = current .. "/" .. part
+			lfs.mkdir(current)
+		end
+	end
+end
+
+local function extractZipArchive(zipFullPath, outputDirFullPath)
+	local f, err = io.open(zipFullPath, "rb")
+	if not f then return false, err end
+	local content = f:read("*a")
+	f:close()
+
+	if not content or #content < 30 then
+		return false, "Invalid or empty archive"
+	end
+
+	local pos = 1
+	local len = #content
+	local count = 0
+	local hasLfs, lfs = pcall(require, "lfs")
+
+	while pos <= len - 30 do
+		local sig = string.sub(content, pos, pos + 3)
+		if sig == "PK\3\4" then
+			local header = string.sub(content, pos, pos + 29)
+			local method = readU16(header, 9)
+			local compSize = readU32(header, 19)
+			local uncompSize = readU32(header, 23)
+			local nameLen = readU16(header, 27)
+			local extraLen = readU16(header, 29)
+
+			local nameStart = pos + 30
+			local nameEnd = nameStart + nameLen - 1
+			local fileName = string.sub(content, nameStart, nameEnd)
+
+			local dataStart = nameEnd + extraLen + 1
+			local dataEnd = dataStart + compSize - 1
+			local data = string.sub(content, dataStart, dataEnd)
+
+			pos = dataEnd + 1
+
+			if not string.match(fileName, "/$") and #data > 0 then
+				local outFilePath = outputDirFullPath .. "/" .. fileName
+				local relSub = string.match(fileName, "(.+)/[^/]+$")
+				if relSub and hasLfs and lfs then
+					local curDir = outputDirFullPath
+					for p in string.gmatch(relSub, "[^/]+") do
+						curDir = curDir .. "/" .. p
+						lfs.mkdir(curDir)
+					end
+				end
+				local outF = io.open(outFilePath, "wb")
+				if outF then
+					outF:write(data)
+					outF:close()
+					count = count + 1
+				end
+			end
+		elseif sig == "PK\1\2" or sig == "PK\5\6" then
+			break
+		else
+			pos = pos + 1
+		end
+	end
+
+	return count > 0, count
+end
+
 --------------------------------------------------------------------------------
 -- Package Loader & Cache
 --------------------------------------------------------------------------------
@@ -271,26 +356,45 @@ function M.loadPackage(path, options)
 	local manifestContent = nil
 
 	if isZip then
-		-- Extract into CachesDirectory if plugin.zip is available
 		local pkgName = string.match(cleanPath, "([^/]+)%.spla$") or "package"
 		local destSubdir = "spriteloop/" .. pkgName
 		local cachedManifestRel = destSubdir .. "/manifest.json"
 
-		-- First, check if already extracted in CachesDirectory
+		-- Check if already extracted in CachesDirectory
 		if fileExists(cachedManifestRel, system.CachesDirectory) and not options.forceReload then
 			manifestContent = readFile(cachedManifestRel, system.CachesDirectory)
 			assetBaseDir = system.CachesDirectory
 			assetBasePath = destSubdir
-		elseif hasZip and zip and zip.uncompress then
+		else
 			local zipFullPath = system.pathForFile(cleanPath, baseDir)
-			local destFullPath = system.pathForFile(destSubdir, system.CachesDirectory)
 
 			if zipFullPath then
-				local ok = zip.uncompress({
-					zipFile = zipFullPath,
-					dstPath = destFullPath,
-				})
-				if ok or fileExists(cachedManifestRel, system.CachesDirectory) then
+				-- Ensure directory tree in CachesDirectory
+				ensureDirectoryTree(destSubdir, system.CachesDirectory)
+				ensureDirectoryTree(destSubdir .. "/assets", system.CachesDirectory)
+
+				local destFullPath = system.pathForFile(destSubdir, system.CachesDirectory)
+				if destFullPath then
+					local extracted = extractZipArchive(zipFullPath, destFullPath)
+					if extracted and fileExists(cachedManifestRel, system.CachesDirectory) then
+						manifestContent = readFile(cachedManifestRel, system.CachesDirectory)
+						assetBaseDir = system.CachesDirectory
+						assetBasePath = destSubdir
+					end
+				end
+			end
+
+			-- Fallback to plugin.zip if native zip extraction was not sufficient
+			if not manifestContent and hasZip and zip and zip.uncompress then
+				local zipRelPath = cleanPath
+				pcall(function()
+					zip.uncompress({
+						zipFile = zipRelPath,
+						zipBaseDir = baseDir,
+						dstBaseDir = system.CachesDirectory,
+					})
+				end)
+				if fileExists(cachedManifestRel, system.CachesDirectory) then
 					manifestContent = readFile(cachedManifestRel, system.CachesDirectory)
 					assetBaseDir = system.CachesDirectory
 					assetBasePath = destSubdir
@@ -311,9 +415,6 @@ function M.loadPackage(path, options)
 
 		if not manifestContent then
 			local err = "Unable to load .spla package '" .. tostring(cleanPath) .. "'."
-			if not (hasZip and zip) then
-				err = err .. " plugin.zip is not available. Please extract the .spla file to '" .. string.sub(cleanPath, 1, -6) .. "' or install plugin.zip."
-			end
 			return nil, err
 		end
 	else
@@ -422,7 +523,44 @@ end
 local SpriteLoopInstance = {}
 local SpriteLoopInstance_mt = { __index = SpriteLoopInstance }
 
---- Resolves the visual asset, size, pivot, rotation, and z-offset for a part.
+--- Calculates the rotated and scaled positional offset for a part variant.
+local function calculatePartOffset(visual, rotation, scaleX, scaleY, skewX, skewY)
+	if not visual then return 0, 0 end
+	local vx = visual.offsetX or 0
+	local vy = visual.offsetY or 0
+	if vx == 0 and vy == 0 then
+		return 0, 0
+	end
+
+	local scX = scaleX or 1
+	local scY = scaleY or 1
+	local skX = skewX or 0
+	local skY = skewY or 0
+	local rot = rotation or 0
+
+	local lx = vx * scX
+	local ly = vy * scY
+
+	if skX ~= 0 or skY ~= 0 then
+		local tanX = math.tan(skX * math.pi / 180.0)
+		local tanY = math.tan(skY * math.pi / 180.0)
+		local skewedX = lx + tanX * ly
+		local skewedY = tanY * lx + ly
+		lx = skewedX
+		ly = skewedY
+	end
+
+	if rot ~= 0 then
+		local rad = rot * math.pi / 180.0
+		local cosR = math.cos(rad)
+		local sinR = math.sin(rad)
+		return (lx * cosR - ly * sinR), (lx * sinR + ly * cosR)
+	else
+		return lx, ly
+	end
+end
+
+--- Resolves the visual asset, size, anchor, offsets, rotation, and z-offset for a part.
 local function resolvePartVisual(self, part, framePart)
 	local pkg = self._package
 	local partId = part.id
@@ -467,13 +605,8 @@ local function resolvePartVisual(self, part, framePart)
 	local imageWidth = imageSource.width or partWidth
 	local imageHeight = imageSource.height or partHeight
 
-	local pivotX = part.pivot.x
-	local pivotY = part.pivot.y
-
-	if variant then
-		pivotX = pivotX + 0.5 * (imageWidth - partWidth) - (variant.offsetX or 0)
-		pivotY = pivotY + 0.5 * (imageHeight - partHeight) - (variant.offsetY or 0)
-	end
+	local pivotX = part.pivot.x + 0.5 * (imageWidth - partWidth)
+	local pivotY = part.pivot.y + 0.5 * (imageHeight - partHeight)
 
 	local anchorX = (imageWidth > 0) and (pivotX / imageWidth) or 0.5
 	local anchorY = (imageHeight > 0) and (pivotY / imageHeight) or 0.5
@@ -490,6 +623,8 @@ local function resolvePartVisual(self, part, framePart)
 		height = imageHeight,
 		anchorX = anchorX,
 		anchorY = anchorY,
+		offsetX = variant and (variant.offsetX or 0) or 0,
+		offsetY = variant and (variant.offsetY or 0) or 0,
 		rotation = variant and (variant.rotation or 0) or 0,
 		zOffset = (framePart and framePart.zOffset or 0) + (variant and (variant.zOffset or 0) or 0),
 		baseDrawOrder = part.drawOrder,
@@ -560,9 +695,10 @@ function SpriteLoopInstance:renderFrame(frameIndex)
 					-- Calculate centered position in group
 					local localX = framePart.x - halfCanvasW
 					local localY = framePart.y - halfCanvasH
+					local offX, offY = calculatePartOffset(visual, framePart.rotation, framePart.scaleX, framePart.scaleY, framePart.skewX, framePart.skewY)
 
-					obj.x = localX
-					obj.y = localY
+					obj.x = localX + offX
+					obj.y = localY + offY
 					obj.rotation = framePart.rotation + visual.rotation
 					obj.xScale = framePart.scaleX
 					obj.yScale = framePart.scaleY
@@ -720,8 +856,10 @@ function SpriteLoopInstance:renderInterpolatedFrame(frameIdxA, frameIdxB, mix)
 						fTintB = tA[3] or 1
 					end
 
-					obj.x = posX
-					obj.y = posY
+					local offX, offY = calculatePartOffset(visual, rot, scX, scY, skX, skY)
+
+					obj.x = posX + offX
+					obj.y = posY + offY
 					obj.rotation = rot + visual.rotation
 					obj.xScale = scX
 					obj.yScale = scY
@@ -1163,6 +1301,14 @@ function SpriteLoopInstance:getPartTransform(partIdOrName, options)
 		op = framePartA.opacity
 		skX = framePartA.skewX or 0
 		skY = framePartA.skewY or 0
+	end
+
+	local visual = resolvePartVisual(self, part, framePartA)
+	if visual then
+		local offX, offY = calculatePartOffset(visual, rot, scX, scY, skX, skY)
+		posX = posX + offX
+		posY = posY + offY
+		rot = rot + (visual.rotation or 0)
 	end
 
 	if options.origin == "center" and not part.transformOnly then

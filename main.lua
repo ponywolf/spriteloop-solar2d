@@ -36,13 +36,13 @@ local uiGroup = display.newGroup()
 
 -- Available sample models
 local models = {
-	{ name = "Robot Idle", path = "spla/robot_idle", scale = 0.75 },
-	{ name = "Ranger (Skins & Variants)", path = "spla/ranger_idle", scale = 0.85 },
+	{ name = "Robot Idle (.spla)", path = "spla/robot_idle.spla", scale = 0.75 },
+	{ name = "Ranger (Skins & Variants) (.spla)", path = "spla/ranger_idle.spla", scale = 0.85 },
 	{ name = "Windmill", path = "spla/windmill", scale = 1.0 },
-	{ name = "Robot (Multi-Skin)", path = "spla/robot_idle_skins", scale = 0.75 },
+	{ name = "Robot (Multi-Skin) (.spla)", path = "spla/robot_idle_skins.spla", scale = 0.75 },
 	{ name = "Robot (Z-Ordering)", path = "spla/robot_idle_z", scale = 0.75 },
-	{ name = "Robot (Multi-Anim)", path = "spla/robot", scale = 0.75 },
-	{ name = "Tint Demo", path = "spla/tint_idle", scale = 0.85 },
+	{ name = "Robot (Multi-Anim) (.spla)", path = "spla/robot.spla", scale = 0.75 },
+	{ name = "Tint Demo (.spla)", path = "spla/tint_idle.spla", scale = 0.85 },
 }
 
 local currentModelIndex = 1
@@ -53,11 +53,11 @@ local currentVariantIndex = 0
 local currentTintIndex = 1
 
 local tintPresets = {
-	{ name = "Original", r = 1.0, g = 1.0, b = 1.0 },
-	{ name = "Ruby Red", r = 1.0, g = 0.4, b = 0.4 },
-	{ name = "Emerald Green", r = 0.4, g = 1.0, b = 0.5 },
-	{ name = "Cyber Cyan", r = 0.4, g = 0.8, b = 1.0 },
-	{ name = "Gold Amber", r = 1.0, g = 0.85, b = 0.3 },
+	{ name = "None", r = 1.0, g = 1.0, b = 1.0 },
+	{ name = "Red", r = 1.0, g = 0.4, b = 0.4 },
+	{ name = "Green", r = 0.4, g = 1.0, b = 0.5 },
+	{ name = "Cyan", r = 0.4, g = 0.8, b = 1.0 },
+	{ name = "Gold", r = 1.0, g = 0.85, b = 0.3 },
 }
 
 local speeds = { 0.25, 0.5, 1.0, 2.0 }
@@ -156,6 +156,12 @@ local function createButton(parent, label, x, y, width, height, onClick)
 		txt.text = newLabel
 	end
 
+	function btn:trigger()
+		if onClick then
+			onClick(self)
+		end
+	end
+
 	function btn:touch(event)
 		if event.phase == "began" then
 			display.getCurrentStage():setFocus(self)
@@ -163,21 +169,26 @@ local function createButton(parent, label, x, y, width, height, onClick)
 			r:setFillColor(0.35, 0.4, 0.52)
 		elseif self._isFocus then
 			if event.phase == "moved" then
-				local bounds = self.contentBounds
-				local inside = (event.x >= bounds.xMin and event.x <= bounds.xMax and
-				                event.y >= bounds.yMin and event.y <= bounds.yMax)
-				if not inside then
-					r:setFillColor(0.22, 0.25, 0.32)
-				else
-					r:setFillColor(0.35, 0.4, 0.52)
+				if event.x and event.y then
+					local bounds = self.contentBounds
+					local inside = (event.x >= bounds.xMin and event.x <= bounds.xMax and
+					                event.y >= bounds.yMin and event.y <= bounds.yMax)
+					if not inside then
+						r:setFillColor(0.22, 0.25, 0.32)
+					else
+						r:setFillColor(0.35, 0.4, 0.52)
+					end
 				end
 			elseif event.phase == "ended" or event.phase == "cancelled" then
 				display.getCurrentStage():setFocus(nil)
 				self._isFocus = false
 				r:setFillColor(0.22, 0.25, 0.32)
-				local bounds = self.contentBounds
-				local inside = (event.x >= bounds.xMin and event.x <= bounds.xMax and
-				                event.y >= bounds.yMin and event.y <= bounds.yMax)
+				local inside = true
+				if event.x and event.y then
+					local bounds = self.contentBounds
+					inside = (event.x >= bounds.xMin and event.x <= bounds.xMax and
+					          event.y >= bounds.yMin and event.y <= bounds.yMax)
+				end
 				if inside and onClick then
 					onClick(self)
 				end
@@ -260,7 +271,7 @@ local function loadCharacterModel(index)
 		variantBtn:setLabel(variantCount > 0 and ("Variant: (0/" .. variantCount .. ")") or "No Variants")
 	end
 	if tintBtn then
-		tintBtn:setLabel("Tint: Original")
+		tintBtn:setLabel("Tint: None")
 	end
 	if playPauseBtn then
 		playPauseBtn:setLabel("Pause")
@@ -360,7 +371,7 @@ variantBtn = createButton(uiGroup, "Variant", rightColX, topRowY + (btnH + padY)
 end)
 
 -- Row 5: Tint & Bone Attachment Toggle
-tintBtn = createButton(uiGroup, "Tint: Original", rightColX - btnW - padX, topRowY + (btnH + padY) * 4, btnW, btnH, function(btn)
+tintBtn = createButton(uiGroup, "Tint: None", rightColX - btnW - padX, topRowY + (btnH + padY) * 4, btnW, btnH, function(btn)
 	if not currentCharacter then return end
 	currentTintIndex = (currentTintIndex % #tintPresets) + 1
 	local t = tintPresets[currentTintIndex]
@@ -444,29 +455,37 @@ end)
 Runtime:addEventListener("key", function(event)
 	if event.phase == "down" then
 		if event.keyName == "space" then
-			if playPauseBtn then playPauseBtn:touch({ phase = "began" }); playPauseBtn:touch({ phase = "ended" }) end
+			if playPauseBtn then playPauseBtn:trigger() end
 		elseif event.keyName == "right" then
 			if currentCharacter then
 				currentCharacter:pause()
+				if playPauseBtn then playPauseBtn:setLabel("Play") end
 				local info = currentCharacter:getInfo()
 				currentCharacter:setFrame(info.currentFrame + 1)
 			end
 		elseif event.keyName == "left" then
 			if currentCharacter then
 				currentCharacter:pause()
+				if playPauseBtn then playPauseBtn:setLabel("Play") end
 				local info = currentCharacter:getInfo()
 				currentCharacter:setFrame(math.max(0, info.currentFrame - 1))
 			end
-		elseif event.keyName == "n" then
+		elseif event.keyName == "n" or event.keyName == "]" then
 			local idx = currentModelIndex + 1
 			if idx > #models then idx = 1 end
 			loadCharacterModel(idx)
+		elseif event.keyName == "p" or event.keyName == "[" then
+			local idx = currentModelIndex - 1
+			if idx < 1 then idx = #models end
+			loadCharacterModel(idx)
 		elseif event.keyName == "s" then
-			if skinBtn then skinBtn:touch({ phase = "began" }); skinBtn:touch({ phase = "ended" }) end
+			if skinBtn then skinBtn:trigger() end
+		elseif event.keyName == "a" then
+			if animBtn then animBtn:trigger() end
 		elseif event.keyName == "v" then
-			if variantBtn then variantBtn:touch({ phase = "began" }); variantBtn:touch({ phase = "ended" }) end
+			if variantBtn then variantBtn:trigger() end
 		elseif event.keyName == "t" then
-			if tintBtn then tintBtn:touch({ phase = "began" }); tintBtn:touch({ phase = "ended" }) end
+			if tintBtn then tintBtn:trigger() end
 		end
 	end
 end)
