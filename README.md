@@ -5,7 +5,7 @@
 
 In a single, clean module, **spriteloop** loads SpriteLoop cut-out animation packages (`.spla` zip archives or pre-extracted directories) and turns them into native Solar2D display objects with full playback, skinning, and bone-tracking support.
 
-- [x] Loads `.spla` packages exported from [SpriteLoop](https://spriteloop.com)
+- [x] Loads `.spla` packages exported from [SpriteLoop](https://balkanramgames.itch.io/spriteloop)
 - [x] Supports both `.spla` archives (via `plugin.zip`) and pre-extracted folders (zero external dependencies)
 - [x] Returns standard Solar2D `display.newGroup()` objects that integrate seamlessly into scenes, physics, and transitions
 - [x] Hierarchical transforms with position, rotation, scale, opacity, and anchor-based pivots
