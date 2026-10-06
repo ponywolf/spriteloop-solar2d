@@ -296,3 +296,9 @@ end
   ```
 * **Zero-Dependency Mode**: If you prefer not to include `plugin.zip`, simply unzip your `.spla` files into a folder in your project and pass the folder path (e.g. `"spla/robot_idle"`).
 * **Empty Parts**: Parts without image assets or marked as `kind = "empty"` are used as invisible attachment targets and will not render any placeholder shapes.
+
+---
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
